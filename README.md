@@ -1,2 +1,2 @@
 # Financial-flows
-Financial flows dashboard Powe BI
+Financial flows dashboard Power BI
