@@ -1,0 +1,483 @@
+Sub UpdateJobDescriptionDocuments()
+    ' This macro will:
+    ' 1. Open each old document
+    ' 2. Extract key information
+    ' 3. Create a new document based on the template
+    ' 4. Fill in the template with extracted information
+    ' 5. Save the new document
+
+    Dim oldDoc As Document
+    Dim newDoc As Document
+    Dim oldFolder As String
+    Dim newFolder As String
+    Dim templatePath As String
+    Dim fileName As String
+    Dim fso As Object
+    Dim folder As Object
+    Dim file As Object
+    Dim response As Integer
+    
+    ' Define paths - YOU MUST MODIFY THESE
+    oldFolder = InputBox("Enter the full path to the folder containing old job descriptions:" & vbCrLf & _
+                         "Example: C:\OldJobDescriptions\", "Old Documents Folder")
+    If oldFolder = "" Then Exit Sub
+    
+    newFolder = InputBox("Enter the full path to the folder where updated job descriptions should be saved:" & vbCrLf & _
+                         "Example: C:\UpdatedJobDescriptions\", "New Documents Folder")
+    If newFolder = "" Then Exit Sub
+    
+    templatePath = InputBox("Enter the full path to your job description template:" & vbCrLf & _
+                           "Example: C:\Templates\JobDescriptionTemplate.docx", "Template Path")
+    If templatePath = "" Then Exit Sub
+    
+    ' Add trailing backslash if missing
+    If Right(oldFolder, 1) <> "\" Then oldFolder = oldFolder & "\"
+    If Right(newFolder, 1) <> "\" Then newFolder = newFolder & "\"
+    
+    ' Check if folders exist
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    
+    If Not fso.FolderExists(oldFolder) Then
+        MsgBox "The source folder does not exist!", vbExclamation
+        Exit Sub
+    End If
+    
+    If Not fso.FolderExists(newFolder) Then
+        response = MsgBox("The destination folder does not exist. Create it?", vbYesNo + vbQuestion)
+        If response = vbYes Then
+            fso.CreateFolder newFolder
+        Else
+            Exit Sub
+        End If
+    End If
+    
+    If Not fso.FileExists(templatePath) Then
+        MsgBox "The template file does not exist!", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Ask how many files to process
+    response = MsgBox("Do you want to process all files in the folder?" & vbCrLf & _
+                     "Click Yes to process all files, or No to process just one test file.", vbYesNo + vbQuestion)
+    
+    Set folder = fso.GetFolder(oldFolder)
+    
+    ' Process files
+    Dim fileCount As Integer
+    fileCount = 0
+    
+    For Each file In folder.Files
+        ' Only process Word documents
+        If LCase(fso.GetExtensionName(file.Path)) = "docx" Or LCase(fso.GetExtensionName(file.Path)) = "doc" Then
+            fileCount = fileCount + 1
+            
+            ' If user chose to process just one file, only process the first one
+            If response = vbNo And fileCount > 1 Then
+                Exit For
+            End If
+            
+            ' Show progress
+            fileName = file.Name
+            Application.StatusBar = "Processing " & fileCount & ": " & fileName
+            
+            ' Open the old document
+            Set oldDoc = Documents.Open(file.Path, ReadOnly:=True)
+            
+            ' Create new document from template
+            Set newDoc = Documents.Add(Template:=templatePath)
+            
+            ' Extract and copy information
+            TransferJobDescription oldDoc, newDoc
+            
+            ' Save the new document
+            newDoc.SaveAs2 newFolder & "Updated_" & fileName, wdFormatDocumentDefault
+            newDoc.Close SaveChanges:=True
+            
+            ' Close the old document
+            oldDoc.Close SaveChanges:=False
+            
+            ' If testing with just one file, show details
+            If response = vbNo Then
+                MsgBox "Test file processed. Updated document saved as:" & vbCrLf & _
+                      newFolder & "Updated_" & fileName, vbInformation
+            End If
+        End If
+    Next file
+    
+    Application.StatusBar = "Done! Processed " & fileCount & " files."
+    MsgBox "Job description update complete!" & vbCrLf & _
+           "Processed " & fileCount & " files." & vbCrLf & _
+           "Updated documents saved to:" & vbCrLf & newFolder, vbInformation
+End Sub
+
+Sub TransferJobDescription(oldDoc As Document, newDoc As Document)
+    ' This subroutine extracts information from the old document
+    ' and transfers it to the appropriate fields in the new template
+    
+    ' Declare variables
+    Dim contentControl As ContentControl
+    Dim tableCell As Cell
+    
+    ' ========= EXTRACT TEXT FROM OLD DOCUMENT =========
+    ' Variables to store extracted information
+    Dim jobFunction As String
+    Dim jobFamily As String
+    Dim jobTitle As String
+    Dim geoScope As String
+    Dim managerialLevel As String
+    Dim directReportsTo As String
+    Dim functionalReportsTo As String
+    Dim numDirectReports As String
+    Dim numFunctionalReports As String
+    Dim budgetResponsibility As String
+    Dim dateContent As String
+    Dim preparedBy As String
+    Dim approvedBy As String
+    Dim jobCode As String
+    Dim functionalObjectives As String
+    Dim mainTasks As String
+    Dim education As String
+    
+    ' Extract information from the old document
+    ' This uses simple text searching - you may need to adjust based on your old document format
+    
+    ' Find job function (might need to adjust search patterns)
+    jobFunction = ExtractText(oldDoc, "Job function:", "Job family:")
+    jobFamily = ExtractText(oldDoc, "Job family:", "Job title:")
+    jobTitle = ExtractText(oldDoc, "Job title:", "Geographical")
+    
+    ' Extract table content - adjust according to your old document structure
+    geoScope = ExtractText(oldDoc, "Geographical Scope:", "Managerial Level:")
+    managerialLevel = ExtractText(oldDoc, "Managerial Level:", "reports to:")
+    directReportsTo = ExtractText(oldDoc, "Directly reports to:", "Functionally reports to:")
+    functionalReportsTo = ExtractText(oldDoc, "Functionally reports to:", "Number of direct reports")
+    numDirectReports = ExtractText(oldDoc, "Number of direct reports", "Number of indirect")
+    numFunctionalReports = ExtractText(oldDoc, "Number of indirect / functional reports", "Budget responsibility")
+    budgetResponsibility = ExtractText(oldDoc, "Budget responsibility", "Functional objectives")
+    
+    ' Extract other fields from old document
+    jobCode = ExtractText(oldDoc, "Job Code:", "")
+    dateContent = ExtractText(oldDoc, "Date", "Prepared by:")
+    preparedBy = ExtractText(oldDoc, "Prepared by:", "Approved by:")
+    approvedBy = ExtractText(oldDoc, "Approved by:", "Job Code:")
+    
+    ' Extract the sectional content (bulleted lists)
+    functionalObjectives = ExtractSectionContent(oldDoc, "Functional objectives:", "Main Tasks:")
+    mainTasks = ExtractSectionContent(oldDoc, "Main Tasks:", "Education and professional knowledge:")
+    education = ExtractSectionContent(oldDoc, "Education and professional knowledge:", "[END]")
+    
+    ' ========= FILL IN NEW DOCUMENT =========
+    
+    ' Fill dropdown fields - these will be left for manual selection 
+    ' because they require judgment to match old values to new dropdown options
+    SetDropdown newDoc, "Job function", jobFunction
+    SetDropdown newDoc, "Job family", jobFamily
+    ' For managerial level, we use our mapping function
+    SetDropdown newDoc, "Managerial Level", managerialLevel
+    
+    ' Fill text fields
+    FillTextField newDoc, "Job title", jobTitle
+    
+    ' Fill table cells
+    FillTableCell newDoc, 1, "Fill in geographical scope", geoScope
+    FillTableCell newDoc, 1, "Fill in supervisor", directReportsTo
+    FillTableCell newDoc, 1, "Fill in functional supervisor", functionalReportsTo
+    FillTableCell newDoc, 1, "Fill in number of direct reports", numDirectReports
+    FillTableCell newDoc, 1, "Fill in number of functional reports", numFunctionalReports
+    FillTableCell newDoc, 1, "Fill in budget responsibility", budgetResponsibility
+    FillTableCell newDoc, 1, "Fill in date of Content", dateContent
+    FillTableCell newDoc, 1, "Fill in creator of JD", preparedBy
+    FillTableCell newDoc, 1, "Fill in approver of JD", approvedBy
+    FillTableCell newDoc, 1, "Fill in Job Code", jobCode
+    
+    ' Add content sections with bullet points
+    AddSectionContent newDoc, "Functional objectives:", functionalObjectives
+    AddSectionContent newDoc, "Main Tasks:", mainTasks
+    AddSectionContent newDoc, "Education and professional knowledge:", education
+End Sub
+
+Function ExtractText(doc As Document, startMarker As String, endMarker As String) As String
+    ' This function extracts text between two markers in a document
+    Dim startPos As Long
+    Dim endPos As Long
+    Dim foundText As Boolean
+    
+    ' Find the starting marker
+    With doc.Content.Find
+        .Text = startMarker
+        .Forward = True
+        .MatchWholeWord = False
+        .MatchCase = False
+        .Execute
+        
+        If .Found Then
+            startPos = doc.Content.Find.Parent.End
+            foundText = True
+            
+            ' If endMarker is provided, find the ending position
+            If endMarker <> "" Then
+                With doc.Range(Start:=startPos, End:=doc.Content.End).Find
+                    .Text = endMarker
+                    .Forward = True
+                    .MatchWholeWord = False
+                    .MatchCase = False
+                    .Execute
+                    
+                    If .Found Then
+                        endPos = doc.Range(Start:=startPos, End:=doc.Content.End).Find.Parent.Start
+                    Else
+                        ' If end marker not found, take until end of paragraph
+                        endPos = InStr(startPos, doc.Content.Text, vbCr)
+                        If endPos = 0 Or endPos < startPos Then endPos = doc.Content.End
+                    End If
+                End With
+            Else
+                ' If no end marker provided, extract until end of paragraph
+                endPos = InStr(startPos, doc.Content.Text, vbCr)
+                If endPos = 0 Or endPos < startPos Then endPos = doc.Content.End
+            End If
+            
+            ' Extract the text
+            If endPos > startPos Then
+                ExtractText = Trim(doc.Range(Start:=startPos, End:=endPos).Text)
+            Else
+                ExtractText = ""
+            End If
+        Else
+            ExtractText = ""
+        End If
+    End With
+End Function
+
+Function ExtractSectionContent(doc As Document, sectionHeader As String, nextSectionHeader As String) As String
+    ' This function extracts a section including bullet points
+    Dim startPos As Long
+    Dim endPos As Long
+    Dim sectionRange As Range
+    
+    ' Find the section header
+    With doc.Content.Find
+        .Text = sectionHeader
+        .Forward = True
+        .MatchWholeWord = False
+        .MatchCase = False
+        .Execute
+        
+        If .Found Then
+            startPos = doc.Content.Find.Parent.End
+            
+            ' Find the next section header
+            With doc.Range(Start:=startPos, End:=doc.Content.End).Find
+                .Text = nextSectionHeader
+                .Forward = True
+                .MatchWholeWord = False
+                .MatchCase = False
+                .Execute
+                
+                If .Found Then
+                    endPos = doc.Range(Start:=startPos, End:=doc.Content.End).Find.Parent.Start
+                Else
+                    ' If next section not found, take to end of document
+                    endPos = doc.Content.End
+                End If
+            End With
+            
+            ' Create range for the section content
+            Set sectionRange = doc.Range(Start:=startPos, End:=endPos)
+            
+            ' Return the section content
+            ExtractSectionContent = Trim(sectionRange.Text)
+        Else
+            ExtractSectionContent = ""
+        End If
+    End With
+End Function
+
+Sub SetDropdown(doc As Document, controlTag As String, value As String)
+    ' Sets a dropdown content control to the specified value
+    ' Uses mapping for managerial levels
+    
+    Dim cc As ContentControl
+    Dim mappedValue As String
+    
+    ' Apply special mapping for managerial levels
+    If controlTag = "Managerial Level" Then
+        mappedValue = MapManagerialLevel(value)
+    Else
+        ' For other dropdowns, just use the original value
+        ' You could add more mapping functions here if needed
+        mappedValue = value
+    End If
+    
+    ' Look for content control by tag or title
+    For Each cc In doc.ContentControls
+        If cc.Title = controlTag Or cc.Tag = controlTag Then
+            ' Try to set the value - if it's not in the list, it won't change
+            On Error Resume Next
+            cc.SetPlaceholderText Text:=mappedValue
+            cc.Range.Text = mappedValue
+            On Error GoTo 0
+            Exit For
+        End If
+    Next cc
+End Sub
+
+Function MapManagerialLevel(oldValue As String) As String
+    ' Maps old managerial level values to one of the six standard options:
+    ' VP, Director, Manager, Leader, Professional, Support
+    
+    oldValue = Trim(LCase(oldValue))
+    
+    ' VP level
+    If InStr(oldValue, "vp") > 0 Or _
+       InStr(oldValue, "vice president") > 0 Or _
+       InStr(oldValue, "vice-president") > 0 Or _
+       InStr(oldValue, "executive") > 0 Or _
+       InStr(oldValue, "chief") > 0 Or _
+       InStr(oldValue, "c-level") > 0 Then
+        MapManagerialLevel = "VP"
+    
+    ' Director level
+    ElseIf InStr(oldValue, "director") > 0 Or _
+           InStr(oldValue, "head of") > 0 Then
+        MapManagerialLevel = "Director"
+    
+    ' Manager level
+    ElseIf InStr(oldValue, "manager") > 0 Or _
+           InStr(oldValue, "management") > 0 Then
+        MapManagerialLevel = "Manager"
+    
+    ' Leader level
+    ElseIf InStr(oldValue, "lead") > 0 Or _
+           InStr(oldValue, "supervisor") > 0 Or _
+           InStr(oldValue, "senior") > 0 Or _
+           InStr(oldValue, "team lead") > 0 Then
+        MapManagerialLevel = "Leader"
+    
+    ' Professional level
+    ElseIf InStr(oldValue, "professional") > 0 Or _
+           InStr(oldValue, "specialist") > 0 Or _
+           InStr(oldValue, "analyst") > 0 Or _
+           InStr(oldValue, "officer") > 0 Or _
+           InStr(oldValue, "associate") > 0 Or _
+           InStr(oldValue, "consultant") > 0 Then
+        MapManagerialLevel = "Professional"
+    
+    ' Support level
+    ElseIf InStr(oldValue, "support") > 0 Or _
+           InStr(oldValue, "assistant") > 0 Or _
+           InStr(oldValue, "clerk") > 0 Or _
+           InStr(oldValue, "coordinator") > 0 Or _
+           InStr(oldValue, "admin") > 0 Then
+        MapManagerialLevel = "Support"
+    
+    ' Default if no match found
+    Else
+        MapManagerialLevel = "Professional"  ' Default to Professional
+    End If
+End Function
+
+Sub FillTextField(doc As Document, fieldName As String, value As String)
+    ' Fills in a plain text field in the document
+    ' Looks for placeholder text and replaces it
+    
+    Dim rng As Range
+    Set rng = doc.Content
+    
+    ' Look for "Fill in..." placeholders that match our field
+    With rng.Find
+        .Text = "Fill in " & fieldName
+        .Forward = True
+        .MatchWholeWord = True
+        .MatchCase = False
+        .Execute
+        
+        If .Found Then
+            rng.Find.Parent.Text = value
+        End If
+    End With
+    
+    ' Also look for content controls
+    Dim cc As ContentControl
+    For Each cc In doc.ContentControls
+        If cc.Title = fieldName Or cc.Tag = fieldName Then
+            cc.Range.Text = value
+            Exit For
+        End If
+    Next cc
+End Sub
+
+Sub FillTableCell(doc As Document, tableIndex As Integer, cellText As String, newValue As String)
+    ' Fills a table cell that contains specific text with new value
+    Dim tbl As Table
+    Dim cell As Cell
+    
+    ' Make sure there are tables in the document
+    If doc.Tables.Count < tableIndex Then Exit Sub
+    
+    ' Get the target table
+    Set tbl = doc.Tables(tableIndex)
+    
+    ' Search for the cell containing our text
+    For Each cell In tbl.Range.Cells
+        If InStr(cell.Range.Text, cellText) > 0 Then
+            ' Replace the placeholder text with our value
+            cell.Range.Text = Replace(cell.Range.Text, cellText, newValue)
+            Exit For
+        End If
+    Next cell
+End Sub
+
+Sub AddSectionContent(doc As Document, sectionHeader As String, content As String)
+    ' Adds content to a section after its header
+    Dim rng As Range
+    
+    ' Find the section header
+    With doc.Content.Find
+        .Text = sectionHeader
+        .Forward = True
+        .MatchWholeWord = False
+        .MatchCase = False
+        .Execute
+        
+        If .Found Then
+            ' Create range at the end of the header
+            Set rng = doc.Content.Find.Parent
+            
+            ' Move to end of header paragraph
+            rng.Collapse wdCollapseEnd
+            
+            ' Add a paragraph break if needed
+            rng.InsertParagraphAfter
+            rng.Collapse wdCollapseEnd
+            
+            ' Insert the content
+            rng.Text = content
+            
+            ' Format as bullet points if needed
+            If InStr(content, "•") > 0 Or InStr(content, "-") > 0 Then
+                FormatBulletPoints rng
+            End If
+        End If
+    End With
+End Sub
+
+Sub FormatBulletPoints(rng As Range)
+    ' Formats text that has bullet indicators as proper bullet points
+    Dim para As Paragraph
+    
+    For Each para In rng.Paragraphs
+        If Trim(para.Range.Text) <> "" Then
+            ' Check if paragraph starts with bullet indicator
+            If Left(Trim(para.Range.Text), 1) = "•" Or Left(Trim(para.Range.Text), 1) = "-" Then
+                ' Apply bullet formatting
+                para.Range.ListFormat.ApplyBulletDefault
+                
+                ' Remove the manual bullet character if needed
+                If Left(Trim(para.Range.Text), 1) = "•" Or Left(Trim(para.Range.Text), 1) = "-" Then
+                    para.Range.Text = Trim(Mid(para.Range.Text, 2))
+                End If
+            End If
+        End If
+    Next para
+End Sub
