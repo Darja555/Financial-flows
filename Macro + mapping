@@ -16,6 +16,10 @@ Sub UpdateJobDescriptionDocuments()
     Dim folder As Object
     Dim file As Object
     Dim response As Integer
+    Dim logFile As String
+    Dim skippedFiles As Integer
+    Dim processedFiles As Integer
+    Dim errorFiles As Integer
     
     ' Define paths - YOU MUST MODIFY THESE
     oldFolder = InputBox("Enter the full path to the folder containing old job descriptions:" & vbCrLf & _
@@ -34,11 +38,19 @@ Sub UpdateJobDescriptionDocuments()
     If Right(oldFolder, 1) <> "\" Then oldFolder = oldFolder & "\"
     If Right(newFolder, 1) <> "\" Then newFolder = newFolder & "\"
     
+    ' Setup logging
+    logFile = newFolder & "JobDescriptionUpdate_Log_" & Format(Now(), "yyyymmdd_hhmmss") & ".txt"
+    LogMessage logFile, "Job Description Update Process Started"
+    LogMessage logFile, "Source folder: " & oldFolder
+    LogMessage logFile, "Destination folder: " & newFolder
+    LogMessage logFile, "Template: " & templatePath
+    
     ' Check if folders exist
     Set fso = CreateObject("Scripting.FileSystemObject")
     
     If Not fso.FolderExists(oldFolder) Then
         MsgBox "The source folder does not exist!", vbExclamation
+        LogMessage logFile, "ERROR: Source folder does not exist"
         Exit Sub
     End If
     
@@ -46,13 +58,16 @@ Sub UpdateJobDescriptionDocuments()
         response = MsgBox("The destination folder does not exist. Create it?", vbYesNo + vbQuestion)
         If response = vbYes Then
             fso.CreateFolder newFolder
+            LogMessage logFile, "Created destination folder: " & newFolder
         Else
+            LogMessage logFile, "User canceled - destination folder does not exist"
             Exit Sub
         End If
     End If
     
     If Not fso.FileExists(templatePath) Then
         MsgBox "The template file does not exist!", vbExclamation
+        LogMessage logFile, "ERROR: Template file does not exist: " & templatePath
         Exit Sub
     End If
     
@@ -60,63 +75,113 @@ Sub UpdateJobDescriptionDocuments()
     response = MsgBox("Do you want to process all files in the folder?" & vbCrLf & _
                      "Click Yes to process all files, or No to process just one test file.", vbYesNo + vbQuestion)
     
+    If response = vbYes Then
+        LogMessage logFile, "Mode: Processing all files"
+    Else
+        LogMessage logFile, "Mode: Processing one test file only"
+    End If
+    
     Set folder = fso.GetFolder(oldFolder)
     
     ' Process files
-    Dim fileCount As Integer
-    fileCount = 0
+    processedFiles = 0
+    skippedFiles = 0
+    errorFiles = 0
     
     For Each file In folder.Files
         ' Only process Word documents
         If LCase(fso.GetExtensionName(file.Path)) = "docx" Or LCase(fso.GetExtensionName(file.Path)) = "doc" Then
-            fileCount = fileCount + 1
+            processedFiles = processedFiles + 1
             
             ' If user chose to process just one file, only process the first one
-            If response = vbNo And fileCount > 1 Then
+            If response = vbNo And processedFiles > 1 Then
+                LogMessage logFile, "Stopping after first file (test mode)"
                 Exit For
             End If
             
             ' Show progress
             fileName = file.Name
-            Application.StatusBar = "Processing " & fileCount & ": " & fileName
+            Application.StatusBar = "Processing " & processedFiles & ": " & fileName
+            LogMessage logFile, "Processing file: " & fileName
             
+            On Error Resume Next
             ' Open the old document
             Set oldDoc = Documents.Open(file.Path, ReadOnly:=True)
             
-            ' Create new document from template
-            Set newDoc = Documents.Add(Template:=templatePath)
-            
-            ' Extract and copy information
-            TransferJobDescription oldDoc, newDoc
-            
-            ' Save the new document
-            newDoc.SaveAs2 newFolder & "Updated_" & fileName, wdFormatDocumentDefault
-            newDoc.Close SaveChanges:=True
-            
-            ' Close the old document
-            oldDoc.Close SaveChanges:=False
+            If Err.Number <> 0 Then
+                LogMessage logFile, "ERROR: Could not open file: " & fileName & " - " & Err.Description
+                errorFiles = errorFiles + 1
+                Err.Clear
+            Else
+                ' Create new document from template
+                Set newDoc = Documents.Add(Template:=templatePath)
+                
+                If Err.Number <> 0 Then
+                    LogMessage logFile, "ERROR: Could not create new document from template - " & Err.Description
+                    errorFiles = errorFiles + 1
+                    Err.Clear
+                    If oldDoc.Windows.Count > 0 Then oldDoc.Close SaveChanges:=False
+                Else
+                    ' Extract and copy information
+                    TransferJobDescription oldDoc, newDoc
+                    
+                    ' Save the new document
+                    newDoc.SaveAs2 newFolder & "Updated_" & fileName, wdFormatDocumentDefault
+                    
+                    If Err.Number <> 0 Then
+                        LogMessage logFile, "ERROR: Could not save new document - " & Err.Description
+                        errorFiles = errorFiles + 1
+                        Err.Clear
+                    Else
+                        LogMessage logFile, "Successfully saved: " & newFolder & "Updated_" & fileName
+                    End If
+                    
+                    newDoc.Close SaveChanges:=False
+                End If
+                
+                ' Close the old document
+                oldDoc.Close SaveChanges:=False
+            End If
+            On Error GoTo 0
             
             ' If testing with just one file, show details
             If response = vbNo Then
                 MsgBox "Test file processed. Updated document saved as:" & vbCrLf & _
                       newFolder & "Updated_" & fileName, vbInformation
             End If
+        Else
+            skippedFiles = skippedFiles + 1
+            LogMessage logFile, "Skipped non-Word file: " & file.Name
         End If
     Next file
     
-    Application.StatusBar = "Done! Processed " & fileCount & " files."
+    Application.StatusBar = "Done! Processed " & processedFiles & " files."
+    LogMessage logFile, "Job description update complete!"
+    LogMessage logFile, "Processed: " & processedFiles & " files"
+    LogMessage logFile, "Skipped: " & skippedFiles & " files"
+    LogMessage logFile, "Errors: " & errorFiles & " files"
+    
     MsgBox "Job description update complete!" & vbCrLf & _
-           "Processed " & fileCount & " files." & vbCrLf & _
-           "Updated documents saved to:" & vbCrLf & newFolder, vbInformation
+           "Processed " & processedFiles & " files." & vbCrLf & _
+           "Skipped " & skippedFiles & " files." & vbCrLf & _
+           "Errors " & errorFiles & " files." & vbCrLf & _
+           "Updated documents saved to:" & vbCrLf & newFolder & vbCrLf & _
+           "See log file for details: " & vbCrLf & logFile, vbInformation
+End Sub
+
+Sub LogMessage(logFile As String, message As String)
+    ' Write a message to the log file
+    Dim fileNum As Integer
+    fileNum = FreeFile
+    
+    Open logFile For Append As #fileNum
+    Print #fileNum, Format(Now(), "yyyy-mm-dd hh:mm:ss") & " - " & message
+    Close #fileNum
 End Sub
 
 Sub TransferJobDescription(oldDoc As Document, newDoc As Document)
     ' This subroutine extracts information from the old document
     ' and transfers it to the appropriate fields in the new template
-    
-    ' Declare variables
-    Dim contentControl As ContentControl
-    Dim tableCell As Cell
     
     ' ========= EXTRACT TEXT FROM OLD DOCUMENT =========
     ' Variables to store extracted information
@@ -139,51 +204,47 @@ Sub TransferJobDescription(oldDoc As Document, newDoc As Document)
     Dim education As String
     
     ' Extract information from the old document
-    ' This uses simple text searching - you may need to adjust based on your old document format
+    jobFunction = CleanExtractedText(ExtractText(oldDoc, "Job function:", "Job family:"))
+    jobFamily = CleanExtractedText(ExtractText(oldDoc, "Job family:", "Job title:"))
+    jobTitle = CleanExtractedText(ExtractText(oldDoc, "Job title:", "Geographical"))
     
-    ' Find job function (might need to adjust search patterns)
-    jobFunction = ExtractText(oldDoc, "Job function:", "Job family:")
-    jobFamily = ExtractText(oldDoc, "Job family:", "Job title:")
-    jobTitle = ExtractText(oldDoc, "Job title:", "Geographical")
-    
-    ' Extract table content - adjust according to your old document structure
-    geoScope = ExtractText(oldDoc, "Geographical Scope:", "Managerial Level:")
-    managerialLevel = ExtractText(oldDoc, "Managerial Level:", "reports to:")
-    directReportsTo = ExtractText(oldDoc, "Directly reports to:", "Functionally reports to:")
-    functionalReportsTo = ExtractText(oldDoc, "Functionally reports to:", "Number of direct reports")
-    numDirectReports = ExtractText(oldDoc, "Number of direct reports", "Number of indirect")
-    numFunctionalReports = ExtractText(oldDoc, "Number of indirect / functional reports", "Budget responsibility")
-    budgetResponsibility = ExtractText(oldDoc, "Budget responsibility", "Functional objectives")
+    ' Extract table content
+    geoScope = CleanExtractedText(ExtractText(oldDoc, "Geographical Scope:", "Managerial Level:"))
+    managerialLevel = CleanExtractedText(ExtractText(oldDoc, "Managerial Level:", "reports to:"))
+    directReportsTo = CleanExtractedText(ExtractText(oldDoc, "Directly reports to:", "Functionally reports to:"))
+    functionalReportsTo = CleanExtractedText(ExtractText(oldDoc, "Functionally reports to:", "Number of direct reports"))
+    numDirectReports = CleanExtractedText(ExtractText(oldDoc, "Number of direct reports", "Number of indirect"))
+    numFunctionalReports = CleanExtractedText(ExtractText(oldDoc, "Number of indirect / functional reports", "Budget responsibility"))
+    budgetResponsibility = CleanExtractedText(ExtractText(oldDoc, "Budget responsibility", "Functional objectives"))
     
     ' Extract other fields from old document
-    jobCode = ExtractText(oldDoc, "Job Code:", "")
-    dateContent = ExtractText(oldDoc, "Date", "Prepared by:")
-    preparedBy = ExtractText(oldDoc, "Prepared by:", "Approved by:")
-    approvedBy = ExtractText(oldDoc, "Approved by:", "Job Code:")
+    jobCode = CleanExtractedText(ExtractText(oldDoc, "Job Code:", ""))
+    dateContent = CleanExtractedText(ExtractText(oldDoc, "Date (Content)", "Prepared by:"))
+    If dateContent = "" Then dateContent = CleanExtractedText(ExtractText(oldDoc, "Date", "Prepared by:"))
+    preparedBy = CleanExtractedText(ExtractText(oldDoc, "Prepared by:", "Approved by:"))
+    approvedBy = CleanExtractedText(ExtractText(oldDoc, "Approved by:", "Job Code:"))
     
     ' Extract the sectional content (bulleted lists)
-    functionalObjectives = ExtractSectionContent(oldDoc, "Functional objectives:", "Main Tasks:")
-    mainTasks = ExtractSectionContent(oldDoc, "Main Tasks:", "Education and professional knowledge:")
-    education = ExtractSectionContent(oldDoc, "Education and professional knowledge:", "[END]")
+    functionalObjectives = CleanExtractedText(ExtractSectionContent(oldDoc, "Functional objectives:", "Main Tasks:"))
+    mainTasks = CleanExtractedText(ExtractSectionContent(oldDoc, "Main Tasks:", "Education and professional knowledge:"))
+    education = CleanExtractedText(ExtractSectionContent(oldDoc, "Education and professional knowledge:", "[END]"))
     
     ' ========= FILL IN NEW DOCUMENT =========
     
-    ' Fill dropdown fields - these will be left for manual selection 
-    ' because they require judgment to match old values to new dropdown options
+    ' Fill dropdown fields
     SetDropdown newDoc, "Job function", jobFunction
-    SetDropdown newDoc, "Job family", jobFamily
-    ' For managerial level, we use our mapping function
+    SetDropdown newDoc, "Job family", jobFamily  ' Will be left blank for manual selection
     SetDropdown newDoc, "Managerial Level", managerialLevel
     
     ' Fill text fields
-    FillTextField newDoc, "Job title", jobTitle
+    FillTextField newDoc, "job title", jobTitle
     
     ' Fill table cells
     FillTableCell newDoc, 1, "Fill in geographical scope", geoScope
     FillTableCell newDoc, 1, "Fill in supervisor", directReportsTo
     FillTableCell newDoc, 1, "Fill in functional supervisor", functionalReportsTo
-    FillTableCell newDoc, 1, "Fill in number of direct reports", numDirectReports
-    FillTableCell newDoc, 1, "Fill in number of functional reports", numFunctionalReports
+    FillTableCell newDoc, 1, "Fill in number of direct", numDirectReports
+    FillTableCell newDoc, 1, "Fill in number of functional", numFunctionalReports
     FillTableCell newDoc, 1, "Fill in budget responsibility", budgetResponsibility
     FillTableCell newDoc, 1, "Fill in date of Content", dateContent
     FillTableCell newDoc, 1, "Fill in creator of JD", preparedBy
@@ -195,6 +256,173 @@ Sub TransferJobDescription(oldDoc As Document, newDoc As Document)
     AddSectionContent newDoc, "Main Tasks:", mainTasks
     AddSectionContent newDoc, "Education and professional knowledge:", education
 End Sub
+
+Function MapJobFunction(oldValue As String) As String
+    ' Maps old job function values to one of the standard options
+    oldValue = Trim(LCase(oldValue))
+    
+    ' Administration
+    If InStr(oldValue, "admin") > 0 Or InStr(oldValue, "administration") > 0 Then
+        MapJobFunction = "Administrations"
+        
+    ' Aviation
+    ElseIf InStr(oldValue, "aviation") > 0 Or InStr(oldValue, "flight") > 0 Or InStr(oldValue, "air") > 0 Then
+        MapJobFunction = "Aviation"
+        
+    ' Business Strategy
+    ElseIf InStr(oldValue, "strategy") > 0 Or InStr(oldValue, "strategic") > 0 Or InStr(oldValue, "business develop") > 0 Then
+        MapJobFunction = "Business Startegy"
+        
+    ' Communications & Corp Affairs
+    ElseIf InStr(oldValue, "communicat") > 0 Or InStr(oldValue, "corporate affair") > 0 Or InStr(oldValue, "pr") > 0 Or InStr(oldValue, "public relation") > 0 Then
+        MapJobFunction = "Communications & Corp Affairs"
+        
+    ' Customer Support
+    ElseIf InStr(oldValue, "customer") > 0 Or InStr(oldValue, "support") > 0 Or InStr(oldValue, "service") > 0 Then
+        MapJobFunction = "Customer Support"
+        
+    ' Engineering
+    ElseIf InStr(oldValue, "engineer") > 0 Or InStr(oldValue, "technical") > 0 Then
+        MapJobFunction = "Engineering"
+        
+    ' Facilities & Corp RE Management
+    ElseIf InStr(oldValue, "facilit") > 0 Or InStr(oldValue, "real estate") > 0 Or InStr(oldValue, "property") > 0 Then
+        MapJobFunction = "Fac & corp RE Management"
+        
+    ' Field Operations
+    ElseIf InStr(oldValue, "field") > 0 Or InStr(oldValue, "operation") > 0 Then
+        MapJobFunction = "Field Operations"
+        
+    ' Finance & Accounting
+    ElseIf InStr(oldValue, "financ") > 0 Or InStr(oldValue, "account") > 0 Or InStr(oldValue, "budget") > 0 Then
+        MapJobFunction = "Finance & Accounting"
+        
+    ' General & Top Management
+    ElseIf InStr(oldValue, "general") > 0 Or InStr(oldValue, "ceo") > 0 Or InStr(oldValue, "president") > 0 Or InStr(oldValue, "executive") > 0 Then
+        MapJobFunction = "General & Top Management"
+        
+    ' Human Resources
+    ElseIf InStr(oldValue, "hr") > 0 Or InStr(oldValue, "human resource") > 0 Or InStr(oldValue, "personnel") > 0 Then
+        MapJobFunction = "Human Resources"
+        
+    ' Information Systems
+    ElseIf InStr(oldValue, "it") > 0 Or InStr(oldValue, "information") > 0 Or InStr(oldValue, "system") > 0 Or InStr(oldValue, "technology") > 0 Then
+        MapJobFunction = "Information Systems"
+        
+    ' Innovation & Technology
+    ElseIf InStr(oldValue, "innovat") > 0 Or InStr(oldValue, "r&d") > 0 Or InStr(oldValue, "research") > 0 Then
+        MapJobFunction = "Innovation & Technology"
+        
+    ' Legal
+    ElseIf InStr(oldValue, "legal") > 0 Or InStr(oldValue, "law") > 0 Or InStr(oldValue, "compliance") > 0 Then
+        MapJobFunction = "Legal"
+        
+    ' Manufacturing Operations
+    ElseIf InStr(oldValue, "manufactur") > 0 Or InStr(oldValue, "product") > 0 Or InStr(oldValue, "assembly") > 0 Then
+        MapJobFunction = "Manufacturing Operations"
+        
+    ' Program Management
+    ElseIf InStr(oldValue, "program") > 0 Or InStr(oldValue, "project") > 0 Then
+        MapJobFunction = "Program Management"
+        
+    ' Quality & Continuous Improvement
+    ElseIf InStr(oldValue, "quality") > 0 Or InStr(oldValue, "improv") > 0 Or InStr(oldValue, "qc") > 0 Then
+        MapJobFunction = "Quality & Continuous Improvement"
+        
+    ' Risk / Health, Safety & Env
+    ElseIf InStr(oldValue, "risk") > 0 Or InStr(oldValue, "health") > 0 Or InStr(oldValue, "safety") > 0 Or InStr(oldValue, "environment") > 0 Then
+        MapJobFunction = "Risk / Health, Safety & Env"
+        
+    ' Sales & Marketing
+    ElseIf InStr(oldValue, "sale") > 0 Or InStr(oldValue, "market") > 0 Then
+        MapJobFunction = "Sales & Marketing"
+        
+    ' Supply Chain & Procurement
+    ElseIf InStr(oldValue, "supply") > 0 Or InStr(oldValue, "procurement") > 0 Or InStr(oldValue, "purchas") > 0 Or InStr(oldValue, "logistics") > 0 Then
+        MapJobFunction = "Supply Chain & Procurement"
+        
+    ' Default if no match found
+    Else
+        MapJobFunction = ""  ' Empty to indicate manual selection needed
+    End If
+End Function
+
+Function MapManagerialLevel(oldValue As String) As String
+    ' Maps old managerial level values to one of the six standard options:
+    ' VP, Director, Manager, Leader, Professional, Support
+    
+    oldValue = Trim(LCase(oldValue))
+    
+    ' VP level
+    If InStr(oldValue, "vp") > 0 Or _
+       InStr(oldValue, "vice president") > 0 Or _
+       InStr(oldValue, "vice-president") > 0 Or _
+       InStr(oldValue, "executive") > 0 Or _
+       InStr(oldValue, "chief") > 0 Or _
+       InStr(oldValue, "c-level") > 0 Then
+        MapManagerialLevel = "VP"
+    
+    ' Director level
+    ElseIf InStr(oldValue, "director") > 0 Or _
+           InStr(oldValue, "head of") > 0 Then
+        MapManagerialLevel = "Director"
+    
+    ' Manager level
+    ElseIf InStr(oldValue, "manager") > 0 Or _
+           InStr(oldValue, "management") > 0 Then
+        MapManagerialLevel = "Manager"
+    
+    ' Leader level
+    ElseIf InStr(oldValue, "lead") > 0 Or _
+           InStr(oldValue, "supervisor") > 0 Or _
+           InStr(oldValue, "senior") > 0 Or _
+           InStr(oldValue, "team lead") > 0 Then
+        MapManagerialLevel = "Leader"
+    
+    ' Professional level
+    ElseIf InStr(oldValue, "professional") > 0 Or _
+           InStr(oldValue, "specialist") > 0 Or _
+           InStr(oldValue, "analyst") > 0 Or _
+           InStr(oldValue, "officer") > 0 Or _
+           InStr(oldValue, "associate") > 0 Or _
+           InStr(oldValue, "consultant") > 0 Then
+        MapManagerialLevel = "Professional"
+    
+    ' Support level
+    ElseIf InStr(oldValue, "support") > 0 Or _
+           InStr(oldValue, "assistant") > 0 Or _
+           InStr(oldValue, "clerk") > 0 Or _
+           InStr(oldValue, "coordinator") > 0 Or _
+           InStr(oldValue, "admin") > 0 Then
+        MapManagerialLevel = "Support"
+    
+    ' Default if no match found
+    Else
+        MapManagerialLevel = "Professional"  ' Default to Professional
+    End If
+End Function
+
+Function CleanExtractedText(text As String) As String
+    ' Cleans up extracted text - removes extra spaces, line breaks, etc.
+    Dim cleanText As String
+    
+    cleanText = Trim(text)
+    
+    ' Replace multiple spaces with single space
+    Do While InStr(cleanText, "  ") > 0
+        cleanText = Replace(cleanText, "  ", " ")
+    Loop
+    
+    ' Replace special characters like Chr(13) (CR), Chr(7) (BEL), etc.
+    cleanText = Replace(cleanText, Chr(13), "")
+    cleanText = Replace(cleanText, Chr(10), "")
+    cleanText = Replace(cleanText, Chr(7), "")
+    cleanText = Replace(cleanText, Chr(11), "")
+    cleanText = Replace(cleanText, Chr(12), "")
+    cleanText = Replace(cleanText, Chr(0), "")
+    
+    CleanExtractedText = cleanText
+End Function
 
 Function ExtractText(doc As Document, startMarker As String, endMarker As String) As String
     ' This function extracts text between two markers in a document
@@ -295,87 +523,38 @@ End Function
 
 Sub SetDropdown(doc As Document, controlTag As String, value As String)
     ' Sets a dropdown content control to the specified value
-    ' Uses mapping for managerial levels
+    ' Uses mapping for job functions and managerial levels
     
     Dim cc As ContentControl
     Dim mappedValue As String
     
-    ' Apply special mapping for managerial levels
-    If controlTag = "Managerial Level" Then
+    ' Apply special mapping based on control type
+    If controlTag = "Job function" Then
+        mappedValue = MapJobFunction(value)
+    ElseIf controlTag = "Managerial Level" Then
         mappedValue = MapManagerialLevel(value)
+    ElseIf controlTag = "Job family" Then
+        ' For job family, per request, leave blank for manual selection
+        mappedValue = ""
     Else
         ' For other dropdowns, just use the original value
-        ' You could add more mapping functions here if needed
         mappedValue = value
     End If
     
     ' Look for content control by tag or title
     For Each cc In doc.ContentControls
         If cc.Title = controlTag Or cc.Tag = controlTag Then
-            ' Try to set the value - if it's not in the list, it won't change
-            On Error Resume Next
-            cc.SetPlaceholderText Text:=mappedValue
-            cc.Range.Text = mappedValue
-            On Error GoTo 0
+            ' Only try to set the value if we have a mapped value
+            If mappedValue <> "" Then
+                On Error Resume Next
+                cc.SetPlaceholderText Text:=mappedValue
+                cc.Range.Text = mappedValue
+                On Error GoTo 0
+            End If
             Exit For
         End If
     Next cc
 End Sub
-
-Function MapManagerialLevel(oldValue As String) As String
-    ' Maps old managerial level values to one of the six standard options:
-    ' VP, Director, Manager, Leader, Professional, Support
-    
-    oldValue = Trim(LCase(oldValue))
-    
-    ' VP level
-    If InStr(oldValue, "vp") > 0 Or _
-       InStr(oldValue, "vice president") > 0 Or _
-       InStr(oldValue, "vice-president") > 0 Or _
-       InStr(oldValue, "executive") > 0 Or _
-       InStr(oldValue, "chief") > 0 Or _
-       InStr(oldValue, "c-level") > 0 Then
-        MapManagerialLevel = "VP"
-    
-    ' Director level
-    ElseIf InStr(oldValue, "director") > 0 Or _
-           InStr(oldValue, "head of") > 0 Then
-        MapManagerialLevel = "Director"
-    
-    ' Manager level
-    ElseIf InStr(oldValue, "manager") > 0 Or _
-           InStr(oldValue, "management") > 0 Then
-        MapManagerialLevel = "Manager"
-    
-    ' Leader level
-    ElseIf InStr(oldValue, "lead") > 0 Or _
-           InStr(oldValue, "supervisor") > 0 Or _
-           InStr(oldValue, "senior") > 0 Or _
-           InStr(oldValue, "team lead") > 0 Then
-        MapManagerialLevel = "Leader"
-    
-    ' Professional level
-    ElseIf InStr(oldValue, "professional") > 0 Or _
-           InStr(oldValue, "specialist") > 0 Or _
-           InStr(oldValue, "analyst") > 0 Or _
-           InStr(oldValue, "officer") > 0 Or _
-           InStr(oldValue, "associate") > 0 Or _
-           InStr(oldValue, "consultant") > 0 Then
-        MapManagerialLevel = "Professional"
-    
-    ' Support level
-    ElseIf InStr(oldValue, "support") > 0 Or _
-           InStr(oldValue, "assistant") > 0 Or _
-           InStr(oldValue, "clerk") > 0 Or _
-           InStr(oldValue, "coordinator") > 0 Or _
-           InStr(oldValue, "admin") > 0 Then
-        MapManagerialLevel = "Support"
-    
-    ' Default if no match found
-    Else
-        MapManagerialLevel = "Professional"  ' Default to Professional
-    End If
-End Function
 
 Sub FillTextField(doc As Document, fieldName As String, value As String)
     ' Fills in a plain text field in the document
@@ -455,9 +634,7 @@ Sub AddSectionContent(doc As Document, sectionHeader As String, content As Strin
             rng.Text = content
             
             ' Format as bullet points if needed
-            If InStr(content, "•") > 0 Or InStr(content, "-") > 0 Then
-                FormatBulletPoints rng
-            End If
+            FormatBulletPoints rng
         End If
     End With
 End Sub
@@ -465,18 +642,41 @@ End Sub
 Sub FormatBulletPoints(rng As Range)
     ' Formats text that has bullet indicators as proper bullet points
     Dim para As Paragraph
+    Dim bulletIndicators As Variant
+    Dim i As Long, lineNum As Long
     
+    ' Define possible bullet indicators
+    bulletIndicators = Array("•", "-", "o", "*", "→", "▪", "▸", "►")
+    
+    lineNum = 0
     For Each para In rng.Paragraphs
-        If Trim(para.Range.Text) <> "" Then
-            ' Check if paragraph starts with bullet indicator
-            If Left(Trim(para.Range.Text), 1) = "•" Or Left(Trim(para.Range.Text), 1) = "-" Then
+        lineNum = lineNum + 1
+        
+        ' Skip the first line as it might be empty after inserting content
+        If lineNum > 1 And Trim(para.Range.Text) <> "" Then
+            Dim foundBullet As Boolean
+            foundBullet = False
+            
+            ' Check for any of our bullet indicators
+            For i = LBound(bulletIndicators) To UBound(bulletIndicators)
+                If Left(Trim(para.Range.Text), 1) = bulletIndicators(i) Then
+                    foundBullet = True
+                    Exit For
+                End If
+            Next i
+            
+            ' If line starts with bullet or we're past first line and all lines should be bullets
+            If foundBullet Or lineNum > 2 Then
                 ' Apply bullet formatting
                 para.Range.ListFormat.ApplyBulletDefault
                 
-                ' Remove the manual bullet character if needed
-                If Left(Trim(para.Range.Text), 1) = "•" Or Left(Trim(para.Range.Text), 1) = "-" Then
-                    para.Range.Text = Trim(Mid(para.Range.Text, 2))
-                End If
+                ' If there was a manual bullet character, remove it
+                For i = LBound(bulletIndicators) To UBound(bulletIndicators)
+                    If Left(Trim(para.Range.Text), 1) = bulletIndicators(i) Then
+                        para.Range.Text = Trim(Mid(para.Range.Text, 2))
+                        Exit For
+                    End If
+                Next i
             End If
         End If
     Next para
