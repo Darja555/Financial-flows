@@ -22,17 +22,11 @@ Sub UpdateJobDescriptionDocuments()
     Dim errorFiles As Integer
     
     ' Define paths
-    oldFolder = InputBox("Enter the full path to the folder containing old job descriptions:" & vbCrLf & _
-                         "Example: C:\OldJobDescriptions\", "Old Documents Folder")
-    If oldFolder = "" Then Exit Sub
+    oldFolder = "Enter the full path to the folder containing old job descriptions:" 
     
-    newFolder = InputBox("Enter the full path to the folder where updated job descriptions should be saved:" & vbCrLf & _
-                         "Example: C:\UpdatedJobDescriptions\", "New Documents Folder")
-    If newFolder = "" Then Exit Sub
+    newFolder = "Enter the full path to the folder where updated job descriptions should be saved:" 
     
-    templatePath = InputBox("Enter the full path to your job description template:" & vbCrLf & _
-                           "Example: C:\Templates\JobDescriptionTemplate.docx", "Template Path")
-    If templatePath = "" Then Exit Sub
+    templatePath = "Enter the full path to your job description template:" 
     
     ' Add trailing backslash if missing
     If Right(oldFolder, 1) <> "\" Then oldFolder = oldFolder & "\"
