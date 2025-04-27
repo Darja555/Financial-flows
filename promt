@@ -62,7 +62,7 @@ Sub UpdateJobDescriptionDocuments()
     MsgBox "Processing complete: " & processedFiles & " files processed, " & errorFiles & " errors. See log file for details.", vbInformation
 End Sub
 
-Sub ProcessJobDescriptionFile(oldFilePath As String, newFilePath As String, templatePath As String, logFile As String, ByRef processedFiles As Integer, ByRef errorFiles As Integer)
+Sub ProcessJobDescriptionFile(oldFilePath As String, newFilePath As String, ByVal templatePath As String, logFile As String, ByRef processedFiles As Integer, ByRef errorFiles As Integer)
     ' Process a single job description file
     Dim appWord As Object
     Dim docOld As Object
@@ -255,7 +255,7 @@ Function ExtractSectionContent(doc As Object, sectionHeader As String, nextSecti
     ' Extracts content of a section
     Dim startPos As Long
     Dim endPos As Long
-    Dim sectionRange As Range
+    Dim sectionRange As Object
     
     With doc.Content.Find
         .Text = sectionHeader
@@ -318,7 +318,7 @@ End Sub
 
 Sub FillComboBox(doc As Object, controlLabel As String, value As String, logFile As String, fileName As String)
     ' Fills a combo box by its label
-    Dim cc As ContentControl
+    Dim cc As Object
     Dim foundControl As Boolean
     
     foundControl = False
@@ -344,13 +344,13 @@ End Sub
 
 Sub FillTextField(doc As Object, fieldName As String, value As String, logFile As String, fileName As String)
     ' Fills a text field by its name
-    Dim cc As ContentControl
+    Dim cc As Object
     Dim foundControl As Boolean
     
     foundControl = False
     
     For Each cc In doc.ContentControls
-        If (cc.Title = fieldName Or cc.Tag = fieldName) And cc.Type = wdContentControlText Then
+        If (cc.Title = fieldName Or cc.Tag = fieldName) Then
             foundControl = True
             On Error Resume Next
             cc.Range.Text = value
@@ -377,12 +377,13 @@ Sub FillTableCellByLabel(doc As Object, tableIndex As Integer, cellLabel As Stri
         Exit Sub
     End If
     
-    Dim tbl As Table
+    Dim tbl As Object
     Set tbl = doc.Tables(tableIndex)
     
-    Dim cell As Cell
-    Dim row As Row
+    Dim cell As Object
+    Dim row As Object
     Dim foundCell As Boolean
+    Dim i As Integer
     
     foundCell = False
     
@@ -411,7 +412,7 @@ End Sub
 
 Sub AddFormattedSectionContent(doc As Object, sectionHeader As String, content As String, logFile As String, fileName As String)
     ' Adds properly formatted content to a section after its header with bullet points
-    Dim rng As Range
+    Dim rng As Object
     
     ' Find the section header
     With doc.Content.Find
@@ -439,6 +440,7 @@ Sub AddFormattedSectionContent(doc As Object, sectionHeader As String, content A
             End If
             
             ' Process each line
+            Dim i As Integer
             For i = 0 To UBound(contentLines)
                 Dim lineText As String
                 lineText = Trim(contentLines(i))
@@ -470,3 +472,7 @@ Sub AddFormattedSectionContent(doc As Object, sectionHeader As String, content A
         End If
     End With
 End Sub
+
+' Add constants that might be missing
+Const wdCollapseEnd = 0
+Const wdContentControlText = 0
