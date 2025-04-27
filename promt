@@ -21,12 +21,10 @@ Sub UpdateJobDescriptionDocuments()
     Dim processedFiles As Integer
     Dim errorFiles As Integer
     
-    ' Define paths
-    oldFolder = "Enter the full path to the folder containing old job descriptions:" 
-    
-    newFolder = "Enter the full path to the folder where updated job descriptions should be saved:" 
-    
-    templatePath = "Enter the full path to your job description template:" 
+    ' Define paths (later: GUI via Excel or via Word)
+    oldFolder = "x"
+    newFolder = "y"
+    templatePath = "z"
     
     ' Add trailing backslash if missing
     If Right(oldFolder, 1) <> "\" Then oldFolder = oldFolder & "\"
@@ -267,32 +265,32 @@ Function CleanExtractedText(text As String) As String
     Do While InStr(cleanText, "  ") > 0
         cleanText = Replace(cleanText, "  ", " ")
     Loop
-    cleanText = Replace(cleanText, Chr(13), "")
-    cleanText = Replace(cleanText, Chr(10), "")
+    cleanText = Replace(cleanText, Chr(13), "") 'CR
+    cleanText = Replace(cleanText, Chr(10), "") 'LF
     cleanText = Replace(cleanText, Chr(7), "")
     cleanText = Replace(cleanText, Chr(11), "")
     cleanText = Replace(cleanText, Chr(12), "")
     cleanText = Replace(cleanText, Chr(0), "")
     CleanExtractedText = cleanText
 End Function
-
+' ERROR!
 Function ExtractText(doc As Document, startMarker As String, endMarker As String) As String
     ' Extracts text between two markers
     Dim startPos As Long
     Dim endPos As Long
     
-    With doc.Content.Find
-        .Text = startMarker
+    With doc.content.Find
+        .text = startMarker
         .Forward = True
-        .MatchWholeWord = False
+        .MatchWholeWord = False 'False
         .MatchCase = False
         .Execute
         
         If .Found Then
             startPos = .Parent.End
             If endMarker <> "" Then
-                With doc.Range(Start:=startPos, End:=doc.Content.End).Find
-                    .Text = endMarker
+                With doc.Range(Start:=startPos, End:=doc.content.End).Find
+                    .text = endMarker
                     .Forward = True
                     .MatchWholeWord = False
                     .MatchCase = False
@@ -300,16 +298,16 @@ Function ExtractText(doc As Document, startMarker As String, endMarker As String
                     If .Found Then
                         endPos = .Parent.Start
                     Else
-                        endPos = InStr(startPos, doc.Content.Text, vbCr)
-                        If endPos = 0 Or endPos < startPos Then endPos = doc.Content.End
+                        endPos = InStr(startPos, doc.content.text, vbCr)
+                        If endPos = 0 Or endPos < startPos Then endPos = doc.content.End
                     End If
                 End With
             Else
-                endPos = InStr(startPos, doc.Content.Text, vbCr)
-                If endPos = 0 Or endPos < startPos Then endPos = doc.Content.End
+                endPos = InStr(startPos, doc.content.text, vbCr)
+                If endPos = 0 Or endPos < startPos Then endPos = doc.content.End
             End If
             If endPos > startPos Then
-                ExtractText = Trim(doc.Range(Start:=startPos, End:=endPos).Text)
+                ExtractText = Trim(doc.Range(Start:=startPos, End:=endPos).text)
             Else
                 ExtractText = ""
             End If
@@ -325,16 +323,16 @@ Function ExtractSectionContent(doc As Document, sectionHeader As String, nextSec
     Dim endPos As Long
     Dim sectionRange As Range
     
-    With doc.Content.Find
-        .Text = sectionHeader
+    With doc.content.Find
+        .text = sectionHeader
         .Forward = True
         .MatchWholeWord = False
         .MatchCase = False
         .Execute
         If .Found Then
             startPos = .Parent.End
-            With doc.Range(Start:=startPos, End:=doc.Content.End).Find
-                .Text = nextSectionHeader
+            With doc.Range(Start:=startPos, End:=doc.content.End).Find
+                .text = nextSectionHeader
                 .Forward = True
                 .MatchWholeWord = False
                 .MatchCase = False
@@ -342,11 +340,11 @@ Function ExtractSectionContent(doc As Document, sectionHeader As String, nextSec
                 If .Found Then
                     endPos = .Parent.Start
                 Else
-                    endPos = doc.Content.End
+                    endPos = doc.content.End
                 End If
             End With
             Set sectionRange = doc.Range(Start:=startPos, End:=endPos)
-            ExtractSectionContent = Trim(sectionRange.Text)
+            ExtractSectionContent = Trim(sectionRange.text)
         Else
             ExtractSectionContent = ""
         End If
@@ -376,7 +374,7 @@ Sub SetDropdown(doc As Document, controlTag As String, value As String, logFile 
             foundControl = True
             If mappedValue <> "" Then
                 On Error Resume Next
-                cc.Range.Text = mappedValue
+                cc.Range.text = mappedValue
                 If Err.Number <> 0 Then
                     LogMessage logFile, "ERROR: Failed to set dropdown '" & controlTag & "' to '" & mappedValue & "' in file: " & fileName & " - " & Err.Description
                     Err.Clear
@@ -402,7 +400,7 @@ Sub FillTextField(doc As Document, fieldName As String, value As String, logFile
         If (cc.Title = fieldName Or cc.Tag = fieldName) And cc.Type = wdContentControlText Then
             foundControl = True
             On Error Resume Next
-            cc.Range.Text = value
+            cc.Range.text = value
             If Err.Number <> 0 Then
                 LogMessage logFile, "ERROR: Failed to set text field '" & fieldName & "' to '" & value & "' in file: " & fileName & " - " & Err.Description
                 Err.Clear
@@ -420,7 +418,7 @@ End Sub
 Sub FillTableCell(doc As Document, tableIndex As Integer, cellText As String, newValue As String, logFile As String, fileName As String)
     ' Fills a table cell with new value
     Dim tbl As Table
-    Dim cell As Cell
+    Dim cell As cell
     Dim foundCell As Boolean
     
     If doc.Tables.Count < tableIndex Then
@@ -432,10 +430,10 @@ Sub FillTableCell(doc As Document, tableIndex As Integer, cellText As String, ne
     foundCell = False
     
     For Each cell In tbl.Range.Cells
-        If InStr(cell.Range.Text, cellText) > 0 Then
+        If InStr(cell.Range.text, cellText) > 0 Then
             foundCell = True
             On Error Resume Next
-            cell.Range.Text = newValue
+            cell.Range.text = newValue
             If Err.Number <> 0 Then
                 LogMessage logFile, "ERROR: Failed to set table cell '" & cellText & "' to '" & newValue & "' in file: " & fileName & " - " & Err.Description
                 Err.Clear
@@ -454,8 +452,8 @@ Sub AddSectionContent(doc As Document, sectionHeader As String, content As Strin
     ' Adds content to a section after its header
     Dim rng As Range
     
-    With doc.Content.Find
-        .Text = sectionHeader
+    With doc.content.Find
+        .text = sectionHeader
         .Forward = True
         .MatchWholeWord = False
         .MatchCase = False
@@ -465,11 +463,12 @@ Sub AddSectionContent(doc As Document, sectionHeader As String, content As Strin
             rng.Collapse wdCollapseEnd
             rng.InsertParagraphAfter
             rng.Collapse wdCollapseEnd
-            rng.Text = content
+            rng.text = content
             FormatBulletPoints rng
         Else
             LogMessage logFile, "WARNING: Section header '" & sectionHeader & "' not found in template for file: " & fileName
         End If
+
     End With
 End Sub
 
@@ -479,16 +478,16 @@ Sub FormatBulletPoints(rng As Range)
     Dim bulletIndicators As Variant
     Dim i As Long, lineNum As Long
     
-    bulletIndicators = Array("•", "-", "o", "*", "→", "▪", "▸", "►")
+    bulletIndicators = Array("•")
     lineNum = 0
     
     For Each para In rng.Paragraphs
         lineNum = lineNum + 1
-        If lineNum > 1 And Trim(para.Range.Text) <> "" Then
+        If lineNum > 1 And Trim(para.Range.text) <> "" Then
             Dim foundBullet As Boolean
             foundBullet = False
             For i = LBound(bulletIndicators) To UBound(bulletIndicators)
-                If Left(Trim(para.Range.Text), 1) = bulletIndicators(i) Then
+                If Left(Trim(para.Range.text), 1) = bulletIndicators(i) Then
                     foundBullet = True
                     Exit For
                 End If
@@ -496,8 +495,8 @@ Sub FormatBulletPoints(rng As Range)
             If foundBullet Or lineNum > 2 Then
                 para.Range.ListFormat.ApplyBulletDefault
                 For i = LBound(bulletIndicators) To UBound(bulletIndicators)
-                    If Left(Trim(para.Range.Text), 1) = bulletIndicators(i) Then
-                        para.Range.Text = Trim(Mid(para.Range.Text, 2))
+                    If Left(Trim(para.Range.text), 1) = bulletIndicators(i) Then
+                        para.Range.text = Trim(Mid(para.Range.text, 2))
                         Exit For
                     End If
                 Next i
@@ -505,3 +504,4 @@ Sub FormatBulletPoints(rng As Range)
         End If
     Next para
 End Sub
+
